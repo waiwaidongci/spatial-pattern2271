@@ -2,7 +2,7 @@ import csv,io
 from redis import Redis
 from fastapi import HTTPException
 from ..models import GridCell,NeighborEdge,SpatialRun,SamplingNote
-from ..config.settings import REDIS_URL
+from ..config.settings import REDIS_URL,JOB_QUEUE_KEY
 from ..utils.serialize import record
 from .survey_service import get_survey
 from .graph_service import prepare_graph,centered_values
@@ -21,8 +21,12 @@ def create_run(db,data,user):
         if len(cells)*data.permutations>64000:raise ValueError("格数×置换次数超额")
     except ValueError as e:raise HTTPException(422,str(e))
     row=SpatialRun(**data.model_dump(),input_snapshot=snapshot,owner=user.name);db.add(row);db.flush();log(db,user.email,"spatial.enqueue",row.id);db.commit()
-    try:queue.rpush("spatial:jobs",row.id)
-    except Exception:row.status="failed";row.error="队列不可用，请重提";db.commit();raise HTTPException(503,row.error)
+    # 队列短暂不可用时不判定失败：研究已受理并持久化为 queued，
+    # worker 的周期回收（reclaim_stuck）会在队列恢复后自动补投。
+    try:
+        queue.rpush(JOB_QUEUE_KEY,row.id)
+    except Exception:
+        log(db,user.email,"spatial.enqueue.deferred",row.id);db.commit()
     return record(row)
 def export_run(db,rid):
     row=get_run(db,rid)

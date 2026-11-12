@@ -84,8 +84,16 @@ npm ci
 npm run dev
 ```
 
-`backend/src/{routes,controllers,services,models,schemas,middlewares,utils,constants,config}` 按来源/图/统计/运行/建议/横切职责拆分；`backend/scripts/seed_demo.py`；`backend/migrations/001_initial.sql`为可选索引升级，首次schema由SQLAlchemy metadata创建，不是独立全量DDL。`frontend/src/{api,stores,types,components/common,hooks,pages,router,utils,constants}` 为React应用。
+`backend/src/{routes,controllers,services,models,schemas,middlewares,utils,constants,config}` 按来源/图/统计/运行/建议/横切职责拆分；`backend/scripts/seed_demo.py`；`backend/migrations/001_initial.sql`为可选索引升级、`002_run_recovery.sql`为租约列升级（首次schema由SQLAlchemy metadata创建，应用启动亦幂等补齐），不是独立全量DDL。`frontend/src/{api,stores,types,components/common,hooks,pages,router,utils,constants}` 为React应用。
+
+后端测试（无需外部PostgreSQL/Redis，SQLite内存文件库+fakeredis）：
+
+```sh
+cd backend
+pip install -r requirements-dev.txt
+python -m pytest tests/ -q
+```
 
 `.env`参数 COMPOSE_PROJECT_NAME、FRONTEND_PORT、BACKEND_PORT、DB_PORT、JWT_SECRET、SEED_DEMO；数据库与Redis连接由Compose定义DATABASE_URL/REDIS_URL。角色枚举在`backend/src/constants/roles.py`与`frontend/src/constants/enums.ts`，被后端路由鉴权和前端角色显示使用；运行状态在`backend/src/constants/status.py`与同一前端enums，被worker及StatusBadge使用；审阅状态在`backend/src/schemas/note.py` Literal、model/service及前端ReviewStatus。
 
-测试与截图在同批 `test-artifacts/gb-0022/`，关键JSON/CSV直接保留在证据根，原始build/teardown日志在logs。已知差异见TESTING。单worker无崩溃任务恢复/多worker去重、来源上传、真实GIS定位或设备连接；不执行外发邮件或真实补测。清理本题：`docker compose down -v --remove-orphans`。MIT License。
+测试与截图在同批 `test-artifacts/gb-0022/`，关键JSON/CSV直接保留在证据根，原始build/teardown日志在logs。已知差异见TESTING。任务恢复内置在worker：建单即持久化，Redis短暂不可用或消息丢失由周期扫描补投，计算进程中断后租约到期自动接手（条件UPDATE+attempts fencing token，旧计算迟到不能覆盖接手者），完整结果文件与库内结果核对一致后完成状态才可见；`backend/tests/`用SQLite+fakeredis覆盖中断接手、重复投递去重、迟到发布拒绝、文件核对与常量输入失败。来源上传、真实GIS定位或设备连接暂不支持，不执行外发邮件或真实补测。清理本题：`docker compose down -v --remove-orphans`。MIT License。
